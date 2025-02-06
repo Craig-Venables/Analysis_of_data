@@ -9,37 +9,44 @@ import os.path
 from pathlib import Path
 import excell
 import sys
-#l
+import json
+
+import graph
+import checkfunctions
+# l
 
 # filepaths
 user_dir = Path.home()
-hdf5_file = user_dir / Path("OneDrive - The University of Nottingham/Documents/Phd/1) Projects/1) Memristors/4) Code analysis/memristor_data.h5")
-solution_devices_excell_path = user_dir / Path("OneDrive - The University of Nottingham/Documents/Phd/solutions and devices.xlsx")
+hdf5_file = user_dir / Path(
+    "OneDrive - The University of Nottingham/Documents/Phd/1) Projects/1) Memristors/4) Code analysis/memristor_data.h5")
+solution_devices_excell_path = user_dir / Path(
+    "OneDrive - The University of Nottingham/Documents/Phd/solutions and devices.xlsx")
+yield_path = user_dir / Path(
+    "OneDrive - The University of Nottingham\Documents/Phd/1) Projects/1) Memristors/1) Curated Data")
 
 
-#save_info_from_solution_devices_excell(device_name, excel_path)
+# save_info_from_solution_devices_excell(device_name, excel_path)
 
 # todo yield
 
 
-
-
 def analyze_hdf5_levels(hdf5_file):
-
     start = time.time()
+    # a list of all substrate names
     list_of_substrate_names = []
+    # list by substrate name of all fabrication information
     device_fabrication_info = {}
+    # get yield from file
+    yield_device_dict, yield_device_sect_dict = get_yield_from_file(yield_path)
 
     with h5py.File(hdf5_file, "r") as store:
         # Group keys by depth
         grouped_keys = get_keys_at_depth(store, target_depth=5)
 
-
         # collect all substrate names
         current_sample = None
         for key in grouped_keys:
             parts = key.strip('/').split('/')
-            substrate_key = parts[0]+'/'+parts[1]
             substrate_name = parts[1]
             if substrate_name != current_sample:
                 current_sample = substrate_name
@@ -49,11 +56,10 @@ def analyze_hdf5_levels(hdf5_file):
         for name in list_of_substrate_names:
             df = excell.save_info_from_solution_devices_excell(name, solution_devices_excell_path)
             device_fabrication_info[name] = df  # Store in dictionary with name as key
-            #todo this needs to have a key of the device name
+            # todo this needs to have a key of the device name
 
         print(device_fabrication_info["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
-        sys.exit()
-
+        # print(device_fabrication_info[list_of_substrate_names[0]])
 
         # Store the data on the first sweeps of all devices
         all_first_sweeps = []
@@ -70,33 +76,32 @@ def analyze_hdf5_levels(hdf5_file):
             print(base_key)
 
             # Retrieve both datasets at once
-            df_raw_data, df_file_stats,parts_key = return_data(base_key, store)
+            df_raw_data, df_file_stats, parts_key = return_data(base_key, store)
             # parts_key = filename(parts[-1]) , device(parts[-2]) etc...
 
+            # use here to do any extra processing
 
             # store the first five sweeps of any device in a dataframe
             if parts_key[-1].startswith('1-'):
-                all_first_sweeps.append((base_key,df_raw_data))
+                all_first_sweeps.append((base_key, df_raw_data))
             if parts_key[-1].startswith('2-'):
-                all_second_sweeps.append((base_key,df_raw_data))
+                all_second_sweeps.append((base_key, df_raw_data))
             if parts_key[-1].startswith('3-'):
-                all_third_sweeps.append((base_key,df_raw_data))
+                all_third_sweeps.append((base_key, df_raw_data))
             if parts_key[-1].startswith('4-'):
-                all_four_sweeps.append((base_key,df_raw_data))
+                all_four_sweeps.append((base_key, df_raw_data))
             if parts_key[-1].startswith('5-'):
-                all_five_sweeps.append((base_key,df_raw_data))
+                all_five_sweeps.append((base_key, df_raw_data))
 
-
-        middle = time.time()
-
-        print(all_first_sweeps)
+        #print(all_first_sweeps)
         # First sweep data
         initial_resistance(all_first_sweeps)
         store.close()
 
-    print("time to organise the data before calling inisital first sweep ", middle - start)
+    #print("time to organise the data before calling inisital first sweep ", middle - start)
 
-def initial_resistance(data,voltage_val = 0.1):
+
+def initial_resistance(data, voltage_val=0.1):
     """ Finds the initial reseistance between 0-0.1 V for the list of values given
         also filters for data that's not within the list valid_classifications to remove unwanted data
     """
@@ -105,48 +110,64 @@ def initial_resistance(data,voltage_val = 0.1):
     wrong_classification = []
 
     # Define valid classifications
-    valid_classifications = ["Memristive", "Ohmic","Conductive","intermittent","Mem-Capacitance"]  # Add more classifications here as needed
+    #valid_classifications = ["Memristive", "Ohmic", "Conductive", "intermittent","Mem-Capacitance"]
     valid_classifications = ["Memristive"]
+
     for key, value in data:
         """value = all the data (metrics_df)
             key = folder structure"""
-        #print('value',value)
-        # print(f"\nAnalyzing key: {key}")  # Debugging print for each key
+
+
+        # Extracting the relevant information from keys and generate safe keys
+        safe_key = key.replace("/", "_")
         parts = key.strip('/').split('/')
         segments = parts[1].split("-")
-
-        # Extracting the relevant information
         device_number = segments[0]
-        concentration = extract_concentration(segments[1])
-        btm_e = segments[2]
         polymer, polymer_percent = extract_polymer_info(segments[3])
-        top_e = segments[4]
 
-        # Print extracted information for debugging
-        print(f"Device Number: {device_number}, Concentration: {concentration}, "
-              f"Bottom Electrode: {btm_e}, Polymer: {polymer}, Polymer Percent: {polymer_percent}, "
-              f"Top Electrode: {top_e}")
 
-        try :
+        try:
             classification = value['classification'].iloc[0]
         except:
             classification = 'Unknown'
             print(f"No classification found for key {key}")
 
-
         if classification in valid_classifications:
-            # only work on data that shows memristive or ohmic behaviour
-            # Filter data
+
+
             # Calculate resistance between the values of V
             resistance_data = value[(value['voltage'] >= 0) & (value['voltage'] <= voltage_val)]['resistance']
             resistance = resistance_data.mean()
 
             # calculate gradient of line for the data to see difference
 
-            if resistance <0:
+            capacitive = checkfunctions.is_sweep_capactive(value, key)
+
+            # various checks to remove bad data
+
+            if resistance < 0:
                 print("check file as classification wrong - negative resistance seen on device")
-                #print(key)
+                # print(key)
                 wrong_classification.append(key)
+
+                # saves all images rejected for later verification
+                label = (f" 0-0.1 {resistance}")
+                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current",label=label)
+                fig.savefig(f"saved_files/negative_resistance/{safe_key}.png")  # Save with corrected filename
+                value.to_csv(f"saved_files/negative_resistance/{safe_key}.txt", sep ="\t")
+                plt.close(fig)  # Close the figure to free memory
+
+            if (value['current'].min() > 0) or (value['current'].max() < 0):
+                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
+                fig.savefig(f"saved_files/half_sweep/{safe_key}.png")  # Save with corrected filename
+                plt.close(fig)  # Close the figure to free memory
+
+            if capacitive:
+                print(f"Device {device_number} is capacitive, skipping resistance calculation")
+                safe_key = key.replace("/", "_")
+                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
+                fig.savefig(f"saved_files/capacitive/{safe_key}.png")  # Save with corrected filename
+                plt.close(fig)  # Close the figure to free memory
 
                 # maybe if resistance is <0 it should pull the second sweep until a
                 # value is found as sometimes the first sweeps non_conductive?
@@ -155,14 +176,20 @@ def initial_resistance(data,voltage_val = 0.1):
                 # Print calculated resistance for debugging
                 print(f"Calculated Average Resistance for key {key}: {resistance}")
 
+                # Store results for checking later
+                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
+                fig.savefig(f"saved_files/let_through/{safe_key}.png")  # Save with corrected filename
+                plt.close(fig)  # Close the figure to free memory
+
+
                 # Store results
                 resistance_results.append({
-                    'device_number': device_number,
-                    'concentration': concentration,
-                    'bottom_electrode': btm_e,
+                    'device_number': segments[0],
+                    'concentration': extract_concentration(segments[1]),
+                    'bottom_electrode': segments[2],
                     'polymer': polymer,
                     'polymer_percent': polymer_percent,
-                    'top_electrode': top_e,
+                    'top_electrode': segments[4],
                     'average_resistance': resistance,
                     'classification': classification,
                     'key': key
@@ -170,13 +197,10 @@ def initial_resistance(data,voltage_val = 0.1):
 
     resistance_df = pd.DataFrame(resistance_results)
 
-    # Print DataFrame for debugging
-    #print("\nResistance DataFrame:")
-    #print(resistance_df)
-
     # Group by device_number
     grouped = resistance_df.groupby('device_number')
-    # also plot graph of all the resistances seen within a device and not avaerage them like below
+
+    # also plot graph of all the resistances seen within a device and not average them like below
 
     # Compute device statistics grouped
     device_stats = []
@@ -195,14 +219,13 @@ def initial_resistance(data,voltage_val = 0.1):
             'spread': spread
         })
 
-    np.savetxt('wrong_classifications.txt',wrong_classification,fmt='%s')
+    np.savetxt('wrong_classifications.txt', wrong_classification, fmt='%s')
 
     device_stats_df = pd.DataFrame(device_stats)
-    device_stats_df.to_csv("Average_resistance_device_0.1v.csv", index=False)
-    resistance_df.to_csv("resistance_grouped_by_device_0.1v.csv", index=False)
+    device_stats_df.to_csv("saved_files/Average_resistance_device_0.1v.csv", index=False)
+    resistance_df.to_csv("saved_files/resistance_grouped_by_device_0.1v.csv", index=False)
 
-
-    #plot
+    # plot
     plt.figure(figsize=(10, 6))
     plt.errorbar(
         device_stats_df['device_number'],  # x values
@@ -219,7 +242,7 @@ def initial_resistance(data,voltage_val = 0.1):
     plt.yscale('log')
     plt.legend()
     plt.grid(True)
-    plt.savefig('1.png')
+    plt.savefig('saved_files/1.png')
     plt.show()
 
     plt.figure(figsize=(10, 6))
@@ -237,7 +260,7 @@ def initial_resistance(data,voltage_val = 0.1):
     plt.yscale('log')
     plt.legend()
     plt.grid(True)
-    plt.savefig('2.png')
+    plt.savefig('saved_files/2.png')
     plt.show()
 
     plt.figure(figsize=(10, 6))
@@ -255,10 +278,8 @@ def initial_resistance(data,voltage_val = 0.1):
     plt.yscale('log')
     plt.legend()
     plt.grid(True)
-    plt.savefig('3.png')
+    plt.savefig('saved_files/3.png')
     plt.show()
-
-
 
 
 def extract_concentration(concentration):
@@ -302,6 +323,24 @@ def get_keys_at_depth(store, target_depth=5):
     return traverse(store, 1)  # Start at depth 1
 
 
+def get_yield_from_file(yield_path):
+    """
+    Load and return the yield dictionary from the JSON files.
+
+    Parameters:
+    - yield_path: Path object to the yield directory"""
+
+    # Load the JSON files
+    with open(yield_path / "yield_dict.json", "r") as f:
+        sorted_yield_dict = json.load(f)
+
+    with open(yield_path / "yield_dict_section.json", "r") as f:
+        sorted_yield_dict_sect = json.load(f)
+
+    print(sorted_yield_dict)
+    print(sorted_yield_dict["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
+    return sorted_yield_dict, sorted_yield_dict_sect
+
 
 def return_data(base_key, store):
     """
@@ -313,18 +352,18 @@ def return_data(base_key, store):
     device = parts[-2]
     section = parts[-3]
 
-    key_file_stats = base_key+"_file_stats"
+    key_file_stats = base_key + "_file_stats"
     key_raw_data = base_key + "_raw_data"
 
     data_file_stats = store[key_file_stats][()]
     data_raw_data = store[key_raw_data][()]
 
-    #convert data back to pd dataframe
+    # convert data back to pd dataframe
 
     column_names_raw_data = ['voltage', 'current', 'abs_current', 'resistance', 'voltage_ps', 'current_ps',
-                             'voltage_ng','current_ng', 'log_Resistance', 'abs_Current_ps', 'abs_Current_ng',
+                             'voltage_ng', 'current_ng', 'log_Resistance', 'abs_Current_ps', 'abs_Current_ng',
                              'current_Density_ps', 'current_Density_ng', 'electric_field_ps', 'electric_field_ng',
-                             'inverse_resistance_ps','inverse_resistance_ng', 'sqrt_Voltage_ps', 'sqrt_Voltage_ng',
+                             'inverse_resistance_ps', 'inverse_resistance_ng', 'sqrt_Voltage_ps', 'sqrt_Voltage_ng',
                              'classification']
 
     column_names_file_stats = ['ps_area', 'ng_area', 'area', 'normalized_area', 'resistance_on_value',
@@ -335,11 +374,10 @@ def return_data(base_key, store):
     df_raw_data_temp = pd.DataFrame(data_raw_data, columns=column_names_raw_data)
     df_raw_data = map_numbers_to_classification(df_raw_data_temp)
 
-    #print(df_file_stats)
-    #print(df_raw_data)
+    # print(df_file_stats)
+    # print(df_raw_data)
 
-    return df_raw_data,df_file_stats,parts
-
+    return df_raw_data, df_file_stats, parts
 
 
 def map_numbers_to_classification(df):
@@ -357,11 +395,13 @@ def map_numbers_to_classification(df):
         df['classification'] = df['classification'].map(reverse_classification_map)
     return df
 
+
 def filter_keys_by_suffix(keys, suffix):
     """
     Filter keys by a specific suffix (e.g., '_info', '_metrics').
     """
     return [key for key in keys if key.endswith(suffix)]
+
 
 # Run analysis on _metrics data
 analyze_hdf5_levels(hdf5_file)
