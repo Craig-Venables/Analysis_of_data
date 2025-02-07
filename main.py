@@ -10,10 +10,15 @@ from pathlib import Path
 import excell
 import sys
 import json
+import openpyxl as op
+import warnings
 
 import graph
 import checkfunctions
 # l
+
+# Remove warning for excell file
+warnings.simplefilter("ignore")
 
 # filepaths
 user_dir = Path.home()
@@ -25,9 +30,8 @@ yield_path = user_dir / Path(
     "OneDrive - The University of Nottingham\Documents/Phd/1) Projects/1) Memristors/1) Curated Data")
 
 
-# save_info_from_solution_devices_excell(device_name, excel_path)
 
-# todo yield
+# haver a look at gpt on buidling an index instead of looping though all keys all the time
 
 
 def analyze_hdf5_levels(hdf5_file):
@@ -42,6 +46,7 @@ def analyze_hdf5_levels(hdf5_file):
     with h5py.File(hdf5_file, "r") as store:
         # Group keys by depth
         grouped_keys = get_keys_at_depth(store, target_depth=5)
+        print(grouped_keys)
 
         # collect all substrate names
         current_sample = None
@@ -117,14 +122,12 @@ def initial_resistance(data, voltage_val=0.1):
         """value = all the data (metrics_df)
             key = folder structure"""
 
-
         # Extracting the relevant information from keys and generate safe keys
         safe_key = key.replace("/", "_")
         parts = key.strip('/').split('/')
         segments = parts[1].split("-")
         device_number = segments[0]
         polymer, polymer_percent = extract_polymer_info(segments[3])
-
 
         try:
             classification = value['classification'].iloc[0]
