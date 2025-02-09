@@ -12,9 +12,12 @@ import sys
 import json
 import openpyxl as op
 import warnings
+import scipy.stats as stats
+import matplotlib.pyplot as plt
 
 import graph
 import checkfunctions
+import Key_functions as kf
 # l
 
 # Remove warning for excell file
@@ -30,8 +33,9 @@ yield_path = user_dir / Path(
     "OneDrive - The University of Nottingham\Documents/Phd/1) Projects/1) Memristors/1) Curated Data")
 
 
-
 # haver a look at gpt on buidling an index instead of looping though all keys all the time
+
+
 
 
 def analyze_hdf5_levels(hdf5_file):
@@ -45,8 +49,15 @@ def analyze_hdf5_levels(hdf5_file):
 
     with h5py.File(hdf5_file, "r") as store:
         # Group keys by depth
+
+        # can be used to find keys for specific things
+        identifiers = ["PMMA", "G"]
+        keys = kf.filter_keys_by_identifiers(store, identifiers, match_all=True)
+        #print(keys)
+
+        #sys.exit()
         grouped_keys = get_keys_at_depth(store, target_depth=5)
-        print(grouped_keys)
+        #print(grouped_keys)
 
         # collect all substrate names
         current_sample = None
@@ -63,7 +74,7 @@ def analyze_hdf5_levels(hdf5_file):
             device_fabrication_info[name] = df  # Store in dictionary with name as key
             # todo this needs to have a key of the device name
 
-        print(device_fabrication_info["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
+        #print(device_fabrication_info["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
         # print(device_fabrication_info[list_of_substrate_names[0]])
 
         # Store the data on the first sweeps of all devices
@@ -135,68 +146,70 @@ def initial_resistance(data, voltage_val=0.1):
             classification = 'Unknown'
             print(f"No classification found for key {key}")
 
-        if classification in valid_classifications:
+        if classification not in valid_classifications:
+            continue
+
+        # Calculate resistance between the values of V
+        resistance_data = value[(value['voltage'] >= 0) & (value['voltage'] <= voltage_val)]['resistance']
+        resistance = resistance_data.mean()
+
+        # calculate gradient of line for the data to see difference
+
+        capacitive = checkfunctions.is_sweep_capactive(value, key)
+
+        # various checks to remove bad data
+        if resistance_data.empty:
+            print(f"No valid resistance data for {key}, skipping.")
+            continue
+        if resistance < 0:
+            print("check file as classification wrong - negative resistance seen on device")
+            # print(key)
+            wrong_classification.append(key)
+
+            # saves all images rejected for later verification
+            label = (f" 0-0.1 {resistance}")
+            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current",label=label)
+            fig.savefig(f"saved_files/negative_resistance/{safe_key}.png")  # Save with corrected filename
+            value.to_csv(f"saved_files/negative_resistance/{safe_key}.txt", sep ="\t")
+            plt.close(fig)  # Close the figure to free memory
+
+        #if (value['current'].min() > 0) or (value['current'].max() < 0):
+        if not ((value["current"].min() < 0) and (value["current"].max() > 0)):
+            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
+            fig.savefig(f"saved_files/half_sweep/{safe_key}.png")  # Save with corrected filename
+            plt.close(fig)  # Close the figure to free memory
+
+        if capacitive:
+            print(f"Device {device_number} is capacitive, skipping resistance calculation")
+            safe_key = key.replace("/", "_")
+            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
+            fig.savefig(f"saved_files/capacitive/{safe_key}.png")  # Save with corrected filename
+            plt.close(fig)  # Close the figure to free memory
+
+            # maybe if resistance is <0 it should pull the second sweep until a
+            # value is found as sometimes the first sweeps non_conductive?
+        else:
+            # Print calculated resistance for debugging
+            print(f"Calculated Average Resistance for key {key}: {resistance}")
+
+            # Store results for checking later
+            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
+            fig.savefig(f"saved_files/let_through/{safe_key}.png")  # Save with corrected filename
+            plt.close(fig)  # Close the figure to free memory
 
 
-            # Calculate resistance between the values of V
-            resistance_data = value[(value['voltage'] >= 0) & (value['voltage'] <= voltage_val)]['resistance']
-            resistance = resistance_data.mean()
-
-            # calculate gradient of line for the data to see difference
-
-            capacitive = checkfunctions.is_sweep_capactive(value, key)
-
-            # various checks to remove bad data
-
-            if resistance < 0:
-                print("check file as classification wrong - negative resistance seen on device")
-                # print(key)
-                wrong_classification.append(key)
-
-                # saves all images rejected for later verification
-                label = (f" 0-0.1 {resistance}")
-                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current",label=label)
-                fig.savefig(f"saved_files/negative_resistance/{safe_key}.png")  # Save with corrected filename
-                value.to_csv(f"saved_files/negative_resistance/{safe_key}.txt", sep ="\t")
-                plt.close(fig)  # Close the figure to free memory
-
-            if (value['current'].min() > 0) or (value['current'].max() < 0):
-                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
-                fig.savefig(f"saved_files/half_sweep/{safe_key}.png")  # Save with corrected filename
-                plt.close(fig)  # Close the figure to free memory
-
-            if capacitive:
-                print(f"Device {device_number} is capacitive, skipping resistance calculation")
-                safe_key = key.replace("/", "_")
-                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
-                fig.savefig(f"saved_files/capacitive/{safe_key}.png")  # Save with corrected filename
-                plt.close(fig)  # Close the figure to free memory
-
-                # maybe if resistance is <0 it should pull the second sweep until a
-                # value is found as sometimes the first sweeps non_conductive?
-
-            else:
-                # Print calculated resistance for debugging
-                print(f"Calculated Average Resistance for key {key}: {resistance}")
-
-                # Store results for checking later
-                fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
-                fig.savefig(f"saved_files/let_through/{safe_key}.png")  # Save with corrected filename
-                plt.close(fig)  # Close the figure to free memory
-
-
-                # Store results
-                resistance_results.append({
-                    'device_number': segments[0],
-                    'concentration': extract_concentration(segments[1]),
-                    'bottom_electrode': segments[2],
-                    'polymer': polymer,
-                    'polymer_percent': polymer_percent,
-                    'top_electrode': segments[4],
-                    'average_resistance': resistance,
-                    'classification': classification,
-                    'key': key
-                })
+            # Store results
+            resistance_results.append({
+                'device_number': segments[0],
+                'concentration': extract_concentration(segments[1]),
+                'bottom_electrode': segments[2],
+                'polymer': polymer,
+                'polymer_percent': polymer_percent,
+                'top_electrode': segments[4],
+                'average_resistance': resistance,
+                'classification': classification,
+                'key': key
+            })
 
     resistance_df = pd.DataFrame(resistance_results)
 
