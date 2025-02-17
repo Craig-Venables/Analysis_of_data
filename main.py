@@ -18,7 +18,9 @@ import matplotlib.pyplot as plt
 import graph
 import checkfunctions
 import Key_functions as kf
-# l
+import dataframes
+
+# add lines on graph showing where short circuiting resistance is,
 
 # Remove warning for excell file
 warnings.simplefilter("ignore")
@@ -36,8 +38,6 @@ yield_path = user_dir / Path(
 # haver a look at gpt on buidling an index instead of looping though all keys all the time
 
 
-
-
 def analyze_hdf5_levels(hdf5_file):
     start = time.time()
     # a list of all substrate names
@@ -50,14 +50,14 @@ def analyze_hdf5_levels(hdf5_file):
     with h5py.File(hdf5_file, "r") as store:
         # Group keys by depth
 
-        # can be used to find keys for specific things
-        identifiers = ["PMMA", "G"]
-        keys = kf.filter_keys_by_identifiers(store, identifiers, match_all=True)
-        #print(keys)
+        # can be used to find keys for specific things ie just pmma
+        identifiers = ["3%","PMMA"]
+        #identifiers = [""]
+        grouped_keys = kf.filter_keys_by_identifiers(store, identifiers, match_all=True)
+        # print(keys)
 
-        #sys.exit()
-        grouped_keys = get_keys_at_depth(store, target_depth=5)
-        #print(grouped_keys)
+        # gets all keys
+        all_keys = get_keys_at_depth(store, target_depth=5)
 
         # collect all substrate names
         current_sample = None
@@ -74,7 +74,12 @@ def analyze_hdf5_levels(hdf5_file):
             device_fabrication_info[name] = df  # Store in dictionary with name as key
             # todo this needs to have a key of the device name
 
-        #print(device_fabrication_info["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
+        # current dataframes include
+        # device fabrication info,
+        # yield_device_dict, yield_device_sect_dict,
+        # all_first_sweeps
+
+        # print(device_fabrication_info["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
         # print(device_fabrication_info[list_of_substrate_names[0]])
 
         # Store the data on the first sweeps of all devices
@@ -86,35 +91,64 @@ def analyze_hdf5_levels(hdf5_file):
 
         # Extract base keys by removing suffixes and co
         base_keys = sorted(set(k.rsplit('_', 2)[0] for k in grouped_keys))
+        # base_key = 'Zn-Cu-In-S(Zns)/D9-2mgml-Gold-PMMA(2%)-Gold-s2/I 100µm/1/1-Fs_1v_0.1s.txt'
 
-        # Analyze data for each file!
+        # combine dataframes and dictionarys togther for easier use
+        df = dataframes.device_df(list_of_substrate_names, yield_device_dict, device_fabrication_info)
+
+        # prep the save location for graphs
+        if "" in identifiers:
+            print("t")
+            directory_name = "All"
+        else:
+            print("f")
+            directory_name = ",".join(identifiers)
+        print(directory_name)
+
+        Save_loc = os.path.join("Substrate_graphs", directory_name)
+        # Create the directory
+        os.makedirs(Save_loc, exist_ok=True)
+
+
+        # Plotting graphs for at the substrate level!
+        # plot polymer % as different colours?
+
+        # plot graphs for analysing between devices
+        graph.plot_concentration_yield(df['Np Concentration'], df['Yield'],Save_loc,directory_name)
+        graph.plot_concentration_yield_labels(df['Np Concentration'], df['Yield'], df["Device Name"],Save_loc,directory_name)
+        graph.plot_concentration_spacing(df['Np Concentration'], df['Qd Spacing (nm)'],Save_loc,directory_name)
+        graph.Spacing_yield(df['Qd Spacing (nm)'], df['Yield'],Save_loc,directory_name)
+        graph.Spacing_yield_labels(df['Qd Spacing (nm)'], df['Yield'], df["Device Name"],Save_loc,directory_name)
+        # 3xis graph of all
+        graph.Spacing_yield_concentration_3d(df["Np Concentration"], df["Qd Spacing (nm)"], df["Yield"],
+                                             df["Device Name"],Save_loc,directory_name)
+
+
+        sys.exit()
+        # Analyze data for each key given
         for base_key in base_keys:
-            print(base_key)
 
             # Retrieve both datasets at once
             df_raw_data, df_file_stats, parts_key = return_data(base_key, store)
-            # parts_key = filename(parts[-1]) , device(parts[-2]) etc...
-
-            # use here to do any extra processing
 
             # store the first five sweeps of any device in a dataframe
             if parts_key[-1].startswith('1-'):
                 all_first_sweeps.append((base_key, df_raw_data))
-            if parts_key[-1].startswith('2-'):
-                all_second_sweeps.append((base_key, df_raw_data))
-            if parts_key[-1].startswith('3-'):
-                all_third_sweeps.append((base_key, df_raw_data))
-            if parts_key[-1].startswith('4-'):
-                all_four_sweeps.append((base_key, df_raw_data))
-            if parts_key[-1].startswith('5-'):
-                all_five_sweeps.append((base_key, df_raw_data))
+            # if parts_key[-1].startswith('2-'):
+            #     all_second_sweeps.append((base_key, df_raw_data))
+            # if parts_key[-1].startswith('3-'):
+            #     all_third_sweeps.append((base_key, df_raw_data))
+            # if parts_key[-1].startswith('4-'):
+            #     all_four_sweeps.append((base_key, df_raw_data))
+            # if parts_key[-1].startswith('5-'):
+            #     all_five_sweeps.append((base_key, df_raw_data))
 
-        #print(all_first_sweeps)
+        # print(all_first_sweeps)
         # First sweep data
         initial_resistance(all_first_sweeps)
         store.close()
 
-    #print("time to organise the data before calling inisital first sweep ", middle - start)
+    # print("time to organise the data before calling inisital first sweep ", middle - start)
 
 
 def initial_resistance(data, voltage_val=0.1):
@@ -126,7 +160,7 @@ def initial_resistance(data, voltage_val=0.1):
     wrong_classification = []
 
     # Define valid classifications
-    #valid_classifications = ["Memristive", "Ohmic", "Conductive", "intermittent","Mem-Capacitance"]
+    # valid_classifications = ["Memristive", "Ohmic", "Conductive", "intermittent","Mem-Capacitance"]
     valid_classifications = ["Memristive"]
 
     for key, value in data:
@@ -168,12 +202,12 @@ def initial_resistance(data, voltage_val=0.1):
 
             # saves all images rejected for later verification
             label = (f" 0-0.1 {resistance}")
-            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current",label=label)
+            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current", label=label)
             fig.savefig(f"saved_files/negative_resistance/{safe_key}.png")  # Save with corrected filename
-            value.to_csv(f"saved_files/negative_resistance/{safe_key}.txt", sep ="\t")
+            value.to_csv(f"saved_files/negative_resistance/{safe_key}.txt", sep="\t")
             plt.close(fig)  # Close the figure to free memory
 
-        #if (value['current'].min() > 0) or (value['current'].max() < 0):
+        # if (value['current'].min() > 0) or (value['current'].max() < 0):
         if not ((value["current"].min() < 0) and (value["current"].max() > 0)):
             fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
             fig.savefig(f"saved_files/half_sweep/{safe_key}.png")  # Save with corrected filename
@@ -196,7 +230,6 @@ def initial_resistance(data, voltage_val=0.1):
             fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
             fig.savefig(f"saved_files/let_through/{safe_key}.png")  # Save with corrected filename
             plt.close(fig)  # Close the figure to free memory
-
 
             # Store results
             resistance_results.append({
@@ -306,7 +339,7 @@ def extract_concentration(concentration):
 
 
 def extract_polymer_info(polymer):
-    name_match = re.match(r"[A-Za-z]+", polymer)  # Match only letters at the start
+    name_match = re.match(r"[A-Za-yields]+", polymer)  # Match only letters at the start
     percent_match = re.search(r"\((\d+)%\)", polymer)  # Match the percentage in parentheses
     name = name_match.group() if name_match else None
     percentage = int(percent_match.group(1)) if percent_match else None

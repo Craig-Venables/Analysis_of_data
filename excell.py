@@ -71,7 +71,9 @@ def save_info_from_solution_devices_excell(device_name, excel_path):
                     '# Dots in 200μm': row_overview.iloc[0]['# Dots in 200μm'],
                     '# Dots in 100μm': row_overview.iloc[0]['# Dots in 100μm'],
                     'Qd Spacing (nm)': row_overview.iloc[0]['Qd Spacing (nm)'],
-                    'Separation Distance': row_overview.iloc[0]['Seperation Distance']
+                    'Separation Distance': row_overview.iloc[0]['Seperation Distance'],
+                    'Concentration of Qd (mg/ml)': row_overview.iloc[0]['Concentration of Qd (mg/ml)']
+
                 })
             else:
                 print(f"Warning: Device '{device_name}' not found in 'Devices Overview'.")

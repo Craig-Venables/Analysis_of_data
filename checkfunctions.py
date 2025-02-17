@@ -47,7 +47,7 @@ def detect_large_fluctuations(value, threshold=1):
 # Dosnt work
 # z_scores = np.abs(stats.zscore(value["resistance"]))
 # if (z_scores >= 5).any():
-#     print(f"Device {device_number} z-score is too high, skipping")
+#     print(f"Device {device_number} yields-score is too high, skipping")
 #     fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
 #     fig.savefig(f"saved_files/z_score_less_3/{safe_key}.png")  # Save with corrected filename
 #     plt.close(fig)  # Close the figure to free memory
