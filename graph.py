@@ -91,7 +91,7 @@ def plot_generic_graph_labels(x, y, labels, xlabel="x", ylabel="y", title="Undef
         plt.xscale()
 
     if concentration:
-        plt.xscale('log')
+        #plt.xscale('log')
         plt.xticks([0.001, 0.005, 0.05, 1, 0.07, 0.2, 2, 4, 0.4, 0.1, 0.01],
                    ["0.001", "0.005", "0.05", " 1", "0.07", "0.2", "2", "4", "0.4", "0.1", "0.01"])
 
@@ -106,13 +106,14 @@ def plot_generic_graph_labels(x, y, labels, xlabel="x", ylabel="y", title="Undef
 
 
 def plot_concentration_yield(x, y,Save_loc,directory_name):
+
     plt.figure(figsize=(15, 10))
-    plt.scatter(x, y )
+    plt.scatter(x, y)
     plt.xlabel("Concentration ")
     plt.ylabel("Yield")
     plt.title("Concentration Vs Yield " + directory_name)
 
-    plt.xscale('log')
+    #plt.xscale('log')
     plt.xticks([0.001, 0.005, 0.05, 1, 0.07, 0.2, 2, 4, 0.4, 0.1],
                ["0.001", "0.005", "0.05", " 1", "0.07", "0.2", "2", "4", "0.4", "0.1"])
 
@@ -127,7 +128,7 @@ def plot_concentration_yield_labels(x, y, labels,Save_loc,directory_name):
     plt.ylabel("Yield")
     plt.title("Concentration Vs Yield " + directory_name )
 
-    plt.xscale('log')
+    #plt.xscale('log')
     plt.xticks([0.001, 0.005, 0.05, 1, 0.07, 0.2, 2, 4, 0.4, 0.1, 0.01],
                ["0.001", "0.005", "0.05", " 1", "0.07", "0.2", "2", "4", "0.4", "0.1", "0.01"])
 
@@ -148,7 +149,7 @@ def plot_concentration_spacing(x, y,Save_loc,directory_name):
     plt.ylabel("Spacing")
     plt.title("Concentration Vs spacing " + directory_name)
 
-    plt.xscale('log')
+    #plt.xscale('log')
     plt.xticks([0.001, 0.005, 0.05, 1, 0.07, 0.2, 2, 4, 0.4, 0.1],
                ["0.001", "0.005", "0.05", " 1", "0.07", "0.2", "2", "4", "0.4", "0.1"])
     plt.savefig(Save_loc + '/concentration_yield.png')
@@ -175,6 +176,8 @@ def Spacing_yield_labels(x, y, labels,Save_loc,directory_name):
     for i in range(len(x_filtered)):
         plt.text(x_filtered[i], y_filtered[i], labels_filtered[i], fontsize=8, ha='right', va='bottom')
 
+
+
     plt.xlabel("Spacing ")
     plt.ylabel("Yield")
     plt.title("spacing Vs yield " + directory_name)
@@ -187,15 +190,15 @@ def Spacing_yield_labels(x, y, labels,Save_loc,directory_name):
 def Spacing_yield(x, y,Save_loc,directory_name):
     plt.figure(figsize=(15, 10))
     # Convert to NumPy arrays (for easier filtering)
-    x = np.array(x)
-    y = np.array(y)
+    # x = np.array(x)
+    # y = np.array(y)
+    #
+    # # Remove zero values from y (and corresponding x values)
+    # mask = y != 0  # Boolean mask where y ≠ 0
+    # x_filtered = x[mask]
+    # y_filtered = y[mask]
 
-    # Remove zero values from y (and corresponding x values)
-    mask = y != 0  # Boolean mask where y ≠ 0
-    x_filtered = x[mask]
-    y_filtered = y[mask]
-
-    plt.scatter(x_filtered, y_filtered)
+    plt.scatter(x, y)
 
     plt.xlabel("Spacing ")
     plt.ylabel("Yield")

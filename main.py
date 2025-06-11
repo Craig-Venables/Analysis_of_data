@@ -22,13 +22,16 @@ import dataframes
 
 # add lines on graph showing where short circuiting resistance is,
 
+# if running into issue with yield run other code first plotting all the graphs!
+
 # Remove warning for excell file
 warnings.simplefilter("ignore")
 
 # filepaths
 user_dir = Path.home()
+file_name = "Memristor_data12.05.25.h5"
 hdf5_file = user_dir / Path(
-    "OneDrive - The University of Nottingham/Documents/Phd/1) Projects/1) Memristors/4) Code analysis/memristor_data.h5")
+    "OneDrive - The University of Nottingham/Documents/Phd/1) Projects/1) Memristors/4) Code analysis/Memristor_data24.03.25.h5")
 solution_devices_excell_path = user_dir / Path(
     "OneDrive - The University of Nottingham/Documents/Phd/solutions and devices.xlsx")
 yield_path = user_dir / Path(
@@ -40,10 +43,9 @@ yield_path = user_dir / Path(
 
 def analyze_hdf5_levels(hdf5_file):
     start = time.time()
-    # a list of all substrate names
-    list_of_substrate_names = []
+
     # list by substrate name of all fabrication information
-    device_fabrication_info = {}
+
     # get yield from file
     yield_device_dict, yield_device_sect_dict = get_yield_from_file(yield_path)
 
@@ -51,28 +53,17 @@ def analyze_hdf5_levels(hdf5_file):
         # Group keys by depth
 
         # can be used to find keys for specific things ie just pmma
-        identifiers = ["3%","PMMA"]
+        identifiers = ["PMMA"]
         #identifiers = [""]
+        # todo make an array of identifiers ie arry of an array to auto make all different graphs
         grouped_keys = kf.filter_keys_by_identifiers(store, identifiers, match_all=True)
-        # print(keys)
-
         # gets all keys
         all_keys = get_keys_at_depth(store, target_depth=5)
 
-        # collect all substrate names
-        current_sample = None
-        for key in grouped_keys:
-            parts = key.strip('/').split('/')
-            substrate_name = parts[1]
-            if substrate_name != current_sample:
-                current_sample = substrate_name
-                list_of_substrate_names.append(substrate_name)
 
-        # get all fabrication info for each substrate,
-        for name in list_of_substrate_names:
-            df = excell.save_info_from_solution_devices_excell(name, solution_devices_excell_path)
-            device_fabrication_info[name] = df  # Store in dictionary with name as key
-            # todo this needs to have a key of the device name
+        list_of_substrate_names = collect_sample_names(grouped_keys)
+        device_fabrication_info = get_fabrication_info(list_of_substrate_names,solution_devices_excell_path)
+
 
         # current dataframes include
         # device fabrication info,
@@ -93,38 +84,22 @@ def analyze_hdf5_levels(hdf5_file):
         base_keys = sorted(set(k.rsplit('_', 2)[0] for k in grouped_keys))
         # base_key = 'Zn-Cu-In-S(Zns)/D9-2mgml-Gold-PMMA(2%)-Gold-s2/I 100µm/1/1-Fs_1v_0.1s.txt'
 
+        pd.set_option('display.max_rows', None)
+        pd.set_option('display.max_columns', None)
+
+
         # combine dataframes and dictionarys togther for easier use
         df = dataframes.device_df(list_of_substrate_names, yield_device_dict, device_fabrication_info)
+        print(df)
+        # Fill missing 'Yield' values with 0
+        df['Yield'] = df['Yield'].fillna(0)
+        print("######################")
+        print(df)
+        #sys.exit()
+        # plot all the graphs for concentation and yield
+        graphs_concentration_yield_spacing(df,identifiers)
 
-        # prep the save location for graphs
-        if "" in identifiers:
-            print("t")
-            directory_name = "All"
-        else:
-            print("f")
-            directory_name = ",".join(identifiers)
-        print(directory_name)
-
-        Save_loc = os.path.join("Substrate_graphs", directory_name)
-        # Create the directory
-        os.makedirs(Save_loc, exist_ok=True)
-
-
-        # Plotting graphs for at the substrate level!
-        # plot polymer % as different colours?
-
-        # plot graphs for analysing between devices
-        graph.plot_concentration_yield(df['Np Concentration'], df['Yield'],Save_loc,directory_name)
-        graph.plot_concentration_yield_labels(df['Np Concentration'], df['Yield'], df["Device Name"],Save_loc,directory_name)
-        graph.plot_concentration_spacing(df['Np Concentration'], df['Qd Spacing (nm)'],Save_loc,directory_name)
-        graph.Spacing_yield(df['Qd Spacing (nm)'], df['Yield'],Save_loc,directory_name)
-        graph.Spacing_yield_labels(df['Qd Spacing (nm)'], df['Yield'], df["Device Name"],Save_loc,directory_name)
-        # 3xis graph of all
-        graph.Spacing_yield_concentration_3d(df["Np Concentration"], df["Qd Spacing (nm)"], df["Yield"],
-                                             df["Device Name"],Save_loc,directory_name)
-
-
-        sys.exit()
+        #sys.exit()
         # Analyze data for each key given
         for base_key in base_keys:
 
@@ -162,6 +137,7 @@ def initial_resistance(data, voltage_val=0.1):
     # Define valid classifications
     # valid_classifications = ["Memristive", "Ohmic", "Conductive", "intermittent","Mem-Capacitance"]
     valid_classifications = ["Memristive"]
+    #valid_classifications = ["Ohmic","Capacative","Conductive"]
 
     for key, value in data:
         """value = all the data (metrics_df)
@@ -288,7 +264,7 @@ def initial_resistance(data, voltage_val=0.1):
     plt.xlabel('Device Number')
     plt.ylabel('Average Resistance (Ohms)')
     plt.title('Average Resistance by Device')
-    plt.yscale('log')
+    #plt.yscale('log')
     plt.legend()
     plt.grid(True)
     plt.savefig('saved_files/1.png')
@@ -306,7 +282,7 @@ def initial_resistance(data, voltage_val=0.1):
     plt.xlabel('Device Number')
     plt.ylabel('Average Resistance (Ohms)')
     plt.title('Average Resistance by Device  non averaged')
-    plt.yscale('log')
+    #plt.yscale('log')
     plt.legend()
     plt.grid(True)
     plt.savefig('saved_files/2.png')
@@ -324,7 +300,7 @@ def initial_resistance(data, voltage_val=0.1):
     plt.xlabel('concentration')
     plt.ylabel('Average Resistance (Ohms)')
     plt.title('Average Resistance by Device  non averaged')
-    plt.yscale('log')
+    #plt.yscale('log')
     plt.legend()
     plt.grid(True)
     plt.savefig('saved_files/3.png')
@@ -386,8 +362,8 @@ def get_yield_from_file(yield_path):
     with open(yield_path / "yield_dict_section.json", "r") as f:
         sorted_yield_dict_sect = json.load(f)
 
-    print(sorted_yield_dict)
-    print(sorted_yield_dict["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
+    #print(sorted_yield_dict)
+    #print(sorted_yield_dict["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
     return sorted_yield_dict, sorted_yield_dict_sect
 
 
@@ -396,7 +372,7 @@ def return_data(base_key, store):
     Given the file key return the data in a pd dataframe converting form numpy array
     """
     parts = base_key.strip('/').split('/')
-    print(parts)
+    #print(parts)
     filename = parts[-1]
     device = parts[-2]
     section = parts[-3]
@@ -450,6 +426,62 @@ def filter_keys_by_suffix(keys, suffix):
     Filter keys by a specific suffix (e.g., '_info', '_metrics').
     """
     return [key for key in keys if key.endswith(suffix)]
+
+
+def graphs_concentration_yield_spacing(df, identifiers):
+    """ graphs of each concentration against yield spacing and stuffs"""
+
+    # prep the save location for graphs
+    if "" in identifiers:
+        directory_name = "All"
+    else:
+        directory_name = ",".join(identifiers)
+    print(directory_name)
+
+    # Create the directory
+    Save_loc = os.path.join("Substrate_graphs", directory_name)
+    os.makedirs(Save_loc, exist_ok=True)
+
+    # Plotting graphs for at the substrate level!
+    # plot polymer % as different colours?
+    #print(df['Np Concentration'].unique())
+    #print(df['Yield'].unique())
+    # plot graphs for analysing between devices
+    graph.plot_concentration_yield(df['Np Concentration'], df['Yield'], Save_loc, directory_name)
+    graph.plot_concentration_yield_labels(df['Np Concentration'], df['Yield'], df["Device Name"], Save_loc,
+                                          directory_name)
+    graph.plot_concentration_spacing(df['Np Concentration'], df['Qd Spacing (nm)'], Save_loc, directory_name)
+    graph.Spacing_yield(df['Qd Spacing (nm)'], df['Yield'], Save_loc, directory_name)
+    graph.Spacing_yield_labels(df['Qd Spacing (nm)'], df['Yield'], df["Device Name"], Save_loc, directory_name)
+    # 3xis graph of all
+    graph.Spacing_yield_concentration_3d(df["Np Concentration"], df["Qd Spacing (nm)"], df["Yield"],
+                                         df["Device Name"], Save_loc, directory_name)
+
+
+def collect_sample_names(grouped_keys):
+    # collect all substrate names
+    # a list of all substrate names
+    list_of_substrate_names = []
+
+    current_sample = None
+    for key in grouped_keys:
+        parts = key.strip('/').split('/')
+        substrate_name = parts[1]
+        if substrate_name != current_sample:
+            current_sample = substrate_name
+            list_of_substrate_names.append(substrate_name)
+    return list_of_substrate_names
+
+
+def get_fabrication_info(list_of_substrate_names, solution_devices_excell_path):
+    device_fabrication_info = {}
+    # get all fabrication info for each substrate,
+    for name in list_of_substrate_names:
+        df = excell.save_info_from_solution_devices_excell(name, solution_devices_excell_path)
+        device_fabrication_info[name] = df  # Store in dictionary with name as key
+        # todo this needs to have a key of the device name???
+    return device_fabrication_info
+
 
 
 # Run analysis on _metrics data

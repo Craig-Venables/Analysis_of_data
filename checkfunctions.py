@@ -1,25 +1,30 @@
 import numpy as np
 
-def is_sweep_capactive(df,key):
+def is_sweep_capactive(df, key):
+    """
+    Checks if a sweep is capacitive based on the current at zero voltage.
+
+    Parameters:
+    - df: The DataFrame containing sweep data with 'voltage' and 'current' columns.
+    - key: The key associated with the sweep data.
+
+    Returns:
+    - bool: True if the sweep is capacitive, False otherwise.
+    """
     current_at_zero_voltage = df.loc[df['voltage'] == 0, 'current']
     max_current = df['current'].max()
-    #print("++")
-    #print(key)
-    #print("max_current" ,max_current)
-    #print("max_current" ,max_current /1000)
-    #print(current_at_zero_voltage.iloc[1])
-    #print("++")
-    # print(current_at_zero_voltage)
-    # print(current_at_zero_voltage[1])
-    if current_at_zero_voltage.iloc[1] > max_current /1000:
-        if current_at_zero_voltage.iloc[1] <= 1E-12:
-            return True
-        else:
-            return False
 
+    # Check if there are any current values at zero voltage
+    if current_at_zero_voltage.empty:
+        return False  # or handle this case according to your logic
+
+    # Access the first (and possibly only) value
+    current_at_zero = current_at_zero_voltage.iloc[0]
+
+    if current_at_zero > max_current / 1000 and current_at_zero <= 1E-12:
+        return True
     else:
         return False
-
 def detect_large_fluctuations(value, threshold=1):
     """Detects whether the dataset has large fluctuations in current"""
     current = value['current'].values
