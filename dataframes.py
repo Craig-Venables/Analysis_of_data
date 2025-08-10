@@ -17,6 +17,7 @@ def device_df(list_of_substrate_names,yield_device_dict,device_fabrication_info)
             qd_volume_fraction_percent = file.get('Volume Fraction %')
             qd_weight_fract = file.get('Weight Fraction')
             solution_id = file.get('Solution 1 ID')
+            polymer = file.get('Polymer')
 
             # If concentration is 'Stock', store as 0
             if qd_concentration == ' Stock':
@@ -29,6 +30,7 @@ def device_df(list_of_substrate_names,yield_device_dict,device_fabrication_info)
                 "Yield": yield_,
                 "Qd Spacing (nm)": qd_spacing,
                 "Np Concentration": qd_concentration,
+                "Polymer": polymer,
                 "Volume Fraction": qd_volume_fraction,
                 "Volume Fraction %": qd_volume_fraction_percent,
                 "Weight Fraction": qd_weight_fract,

@@ -1,24 +1,26 @@
-import pandas as pd
+import argparse
+import json
+import os
+import os.path
 import re
+import sys
+import time
+from pathlib import Path
+
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
-import h5py
-import time
-import h5py
-import os.path
-from pathlib import Path
-import excell
-import sys
-import json
-import openpyxl as op
+import openpyxl as op  # noqa: F401 - imported for side-effects/compatibility
+import pandas as pd
+import scipy.stats as stats  # noqa: F401 - currently unused in core flow
 import warnings
-import scipy.stats as stats
-import matplotlib.pyplot as plt
 
-import graph
-import checkfunctions
-import Key_functions as kf
 import dataframes
+import excell
+import graph
+import Key_functions as kf
+import checkfunctions
+from analysis import analyze_hdf5_levels
 
 # add lines on graph showing where short circuiting resistance is,
 
@@ -27,462 +29,107 @@ import dataframes
 # Remove warning for excell file
 warnings.simplefilter("ignore")
 
-# filepaths
-user_dir = Path.home()
-file_name = "Memristor_data12.05.25.h5"
-hdf5_file = user_dir / Path(
-    "OneDrive - The University of Nottingham/Documents/Phd/1) Projects/1) Memristors/4) Code analysis/Memristor_data24.03.25.h5")
-solution_devices_excell_path = user_dir / Path(
-    "OneDrive - The University of Nottingham/Documents/Phd/solutions and devices.xlsx")
-yield_path = user_dir / Path(
-    "OneDrive - The University of Nottingham\Documents/Phd/1) Projects/1) Memristors/1) Curated Data")
+# haver a look at gpt on building an index instead of looping though all keys all the time
+
+def parse_arguments(argv=None):
+    parser = argparse.ArgumentParser(description="Analyze memristor HDF5 data and generate plots/statistics.")
+    parser.add_argument("--hdf5", dest="hdf5_file", required=False, help="Path to the HDF5 file to analyze")
+    parser.add_argument("--excel", dest="excel_path", required=False, help="Path to 'solutions and devices.xlsx'")
+    parser.add_argument("--yield-dir", dest="yield_dir", required=False, help="Directory containing yield_dict.json and yield_dict_section.json")
+    parser.add_argument(
+        "-i", "--identifier", dest="identifiers", action="append", default=[], help="Identifier to filter keys (can be repeated)"
+    )
+    parser.add_argument("--match-any", dest="match_all", action="store_false", help="Match any identifier instead of all (default: match all)")
+    parser.add_argument("--voltage", dest="voltage_val", type=float, default=0.1, help="Voltage upper bound for resistance calculation (default: 0.1)")
+    parser.add_argument(
+        "--class", dest="valid_classes", action="append", default=None, help="Valid classifications to include (can be repeated). Default: Memristive"
+    )
+    parser.add_argument("--output-dir", dest="output_dir", default=str(Path.cwd() / "saved_files"), help="Directory to save outputs (default: repo/saved_files)")
+    parser.add_argument("--gui", dest="gui", action="store_true", help="Launch the PyQt GUI instead of CLI")
+    parser.add_argument("--classify", dest="run_classify", action="store_true", help="Run classification-only flow and export classification_report.csv")
+    return parser.parse_args(argv)
 
 
-# haver a look at gpt on buidling an index instead of looping though all keys all the time
+def main(argv=None):
+    args = parse_arguments(argv)
 
+    if args.gui:
+        # Lazy import to avoid PyQt dependency in CLI-only environments
+        from gui import launch_gui
 
-def analyze_hdf5_levels(hdf5_file):
-    start = time.time()
+        launch_gui()
+        return 0
 
-    # list by substrate name of all fabrication information
+    # Provide sensible defaults if not all CLI params were passed (non-GUI mode)
+    hdf5_fallback, excel_fallback, yield_fallback = _discover_defaults()
+    hdf5_path = args.hdf5_file or hdf5_fallback
+    excel_path = args.excel_path or excel_fallback
+    yield_dir = args.yield_dir or yield_fallback
 
-    # get yield from file
-    yield_device_dict, yield_device_sect_dict = get_yield_from_file(yield_path)
+    # Validate required paths
+    if not hdf5_path or not excel_path or not yield_dir:
+        print("Error: --hdf5, --excel, and --yield-dir are required (or discoverable). Or use --gui.")
+        return 2
 
-    with h5py.File(hdf5_file, "r") as store:
-        # Group keys by depth
+    identifiers = args.identifiers if args.identifiers else ["PMMA"]
+    valid_classes = args.valid_classes if args.valid_classes is not None else ["Memristive"]
 
-        # can be used to find keys for specific things ie just pmma
-        identifiers = ["PMMA"]
-        #identifiers = [""]
-        # todo make an array of identifiers ie arry of an array to auto make all different graphs
-        grouped_keys = kf.filter_keys_by_identifiers(store, identifiers, match_all=True)
-        # gets all keys
-        all_keys = get_keys_at_depth(store, target_depth=5)
-
-
-        list_of_substrate_names = collect_sample_names(grouped_keys)
-        device_fabrication_info = get_fabrication_info(list_of_substrate_names,solution_devices_excell_path)
-
-
-        # current dataframes include
-        # device fabrication info,
-        # yield_device_dict, yield_device_sect_dict,
-        # all_first_sweeps
-
-        # print(device_fabrication_info["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
-        # print(device_fabrication_info[list_of_substrate_names[0]])
-
-        # Store the data on the first sweeps of all devices
-        all_first_sweeps = []
-        all_second_sweeps = []
-        all_third_sweeps = []
-        all_four_sweeps = []
-        all_five_sweeps = []
-
-        # Extract base keys by removing suffixes and co
-        base_keys = sorted(set(k.rsplit('_', 2)[0] for k in grouped_keys))
-        # base_key = 'Zn-Cu-In-S(Zns)/D9-2mgml-Gold-PMMA(2%)-Gold-s2/I 100µm/1/1-Fs_1v_0.1s.txt'
-
-        pd.set_option('display.max_rows', None)
-        pd.set_option('display.max_columns', None)
-
-
-        # combine dataframes and dictionarys togther for easier use
-        df = dataframes.device_df(list_of_substrate_names, yield_device_dict, device_fabrication_info)
-        print(df)
-        # Fill missing 'Yield' values with 0
-        df['Yield'] = df['Yield'].fillna(0)
-        print("######################")
-        print(df)
-        #sys.exit()
-        # plot all the graphs for concentation and yield
-        graphs_concentration_yield_spacing(df,identifiers)
-
-        #sys.exit()
-        # Analyze data for each key given
-        for base_key in base_keys:
-
-            # Retrieve both datasets at once
-            df_raw_data, df_file_stats, parts_key = return_data(base_key, store)
-
-            # store the first five sweeps of any device in a dataframe
-            if parts_key[-1].startswith('1-'):
-                all_first_sweeps.append((base_key, df_raw_data))
-            # if parts_key[-1].startswith('2-'):
-            #     all_second_sweeps.append((base_key, df_raw_data))
-            # if parts_key[-1].startswith('3-'):
-            #     all_third_sweeps.append((base_key, df_raw_data))
-            # if parts_key[-1].startswith('4-'):
-            #     all_four_sweeps.append((base_key, df_raw_data))
-            # if parts_key[-1].startswith('5-'):
-            #     all_five_sweeps.append((base_key, df_raw_data))
-
-        # print(all_first_sweeps)
-        # First sweep data
-        initial_resistance(all_first_sweeps)
-        store.close()
-
-    # print("time to organise the data before calling inisital first sweep ", middle - start)
-
-
-def initial_resistance(data, voltage_val=0.1):
-    """ Finds the initial reseistance between 0-0.1 V for the list of values given
-        also filters for data that's not within the list valid_classifications to remove unwanted data
-    """
-
-    resistance_results = []
-    wrong_classification = []
-
-    # Define valid classifications
-    # valid_classifications = ["Memristive", "Ohmic", "Conductive", "intermittent","Mem-Capacitance"]
-    valid_classifications = ["Memristive"]
-    #valid_classifications = ["Ohmic","Capacative","Conductive"]
-
-    for key, value in data:
-        """value = all the data (metrics_df)
-            key = folder structure"""
-
-        # Extracting the relevant information from keys and generate safe keys
-        safe_key = key.replace("/", "_")
-        parts = key.strip('/').split('/')
-        segments = parts[1].split("-")
-        device_number = segments[0]
-        polymer, polymer_percent = extract_polymer_info(segments[3])
-
-        try:
-            classification = value['classification'].iloc[0]
-        except:
-            classification = 'Unknown'
-            print(f"No classification found for key {key}")
-
-        if classification not in valid_classifications:
-            continue
-
-        # Calculate resistance between the values of V
-        resistance_data = value[(value['voltage'] >= 0) & (value['voltage'] <= voltage_val)]['resistance']
-        resistance = resistance_data.mean()
-
-        # calculate gradient of line for the data to see difference
-
-        capacitive = checkfunctions.is_sweep_capactive(value, key)
-
-        # various checks to remove bad data
-        if resistance_data.empty:
-            print(f"No valid resistance data for {key}, skipping.")
-            continue
-        if resistance < 0:
-            print("check file as classification wrong - negative resistance seen on device")
-            # print(key)
-            wrong_classification.append(key)
-
-            # saves all images rejected for later verification
-            label = (f" 0-0.1 {resistance}")
-            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current", label=label)
-            fig.savefig(f"saved_files/negative_resistance/{safe_key}.png")  # Save with corrected filename
-            value.to_csv(f"saved_files/negative_resistance/{safe_key}.txt", sep="\t")
-            plt.close(fig)  # Close the figure to free memory
-
-        # if (value['current'].min() > 0) or (value['current'].max() < 0):
-        if not ((value["current"].min() < 0) and (value["current"].max() > 0)):
-            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
-            fig.savefig(f"saved_files/half_sweep/{safe_key}.png")  # Save with corrected filename
-            plt.close(fig)  # Close the figure to free memory
-
-        if capacitive:
-            print(f"Device {device_number} is capacitive, skipping resistance calculation")
-            safe_key = key.replace("/", "_")
-            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
-            fig.savefig(f"saved_files/capacitive/{safe_key}.png")  # Save with corrected filename
-            plt.close(fig)  # Close the figure to free memory
-
-            # maybe if resistance is <0 it should pull the second sweep until a
-            # value is found as sometimes the first sweeps non_conductive?
+    if args.run_classify:
+        from analysis import classify_sweeps
+        classify_sweeps(
+            hdf5_file_path=hdf5_path,
+            identifiers=identifiers,
+            match_all=args.match_all,
+            output_dir=args.output_dir,
+            log_fn=print,
+        )
         else:
-            # Print calculated resistance for debugging
-            print(f"Calculated Average Resistance for key {key}: {resistance}")
+        analyze_hdf5_levels(
+            hdf5_file_path=hdf5_path,
+            solution_devices_excel_path=excel_path,
+            yield_dir_path=yield_dir,
+            identifiers=identifiers,
+            match_all=args.match_all,
+            voltage_val=args.voltage_val,
+            output_dir=args.output_dir,
+            valid_classifications=valid_classes,
+            log_fn=print,
+        )
 
-            # Store results for checking later
-            fig = graph.plot_graph(value['voltage'], value['current'], "voltage", "current")
-            fig.savefig(f"saved_files/let_through/{safe_key}.png")  # Save with corrected filename
-            plt.close(fig)  # Close the figure to free memory
-
-            # Store results
-            resistance_results.append({
-                'device_number': segments[0],
-                'concentration': extract_concentration(segments[1]),
-                'bottom_electrode': segments[2],
-                'polymer': polymer,
-                'polymer_percent': polymer_percent,
-                'top_electrode': segments[4],
-                'average_resistance': resistance,
-                'classification': classification,
-                'key': key
-            })
-
-    resistance_df = pd.DataFrame(resistance_results)
-
-    # Group by device_number
-    grouped = resistance_df.groupby('device_number')
-
-    # also plot graph of all the resistances seen within a device and not average them like below
-
-    # Compute device statistics grouped
-    device_stats = []
-    for device, group in grouped:
-        resistance = group['average_resistance'].mean()
-        max_resistance = group['average_resistance'].max()
-        min_resistance = group['average_resistance'].min()
-        spread = (max_resistance - min_resistance) / 2
-
-        print(f"\nDevice {device}: Average Resistance: {resistance}, Max Resistance: {max_resistance}, "
-              f"Min Resistance: {min_resistance}, Spread: {spread}")
-
-        device_stats.append({
-            'device_number': device,
-            'average_resistance': resistance,
-            'spread': spread
-        })
-
-    np.savetxt('wrong_classifications.txt', wrong_classification, fmt='%s')
-
-    device_stats_df = pd.DataFrame(device_stats)
-    device_stats_df.to_csv("saved_files/Average_resistance_device_0.1v.csv", index=False)
-    resistance_df.to_csv("saved_files/resistance_grouped_by_device_0.1v.csv", index=False)
-
-    # plot
-    plt.figure(figsize=(10, 6))
-    plt.errorbar(
-        device_stats_df['device_number'],  # x values
-        device_stats_df['average_resistance'],  # y values
-        yerr=device_stats_df['spread'],  # Error bars
-        fmt='o',
-        ecolor='red',
-        capsize=5,
-        label='Average Resistance with Error'
-    )
-    plt.xlabel('Device Number')
-    plt.ylabel('Average Resistance (Ohms)')
-    plt.title('Average Resistance by Device')
-    #plt.yscale('log')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('saved_files/1.png')
-    plt.show()
-
-    plt.figure(figsize=(10, 6))
-    plt.errorbar(
-        resistance_df['device_number'],  # x values
-        resistance_df['average_resistance'],  # y values
-        fmt='x',
-        ecolor='red',
-        capsize=5,
-        label='Average Resistance'
-    )
-    plt.xlabel('Device Number')
-    plt.ylabel('Average Resistance (Ohms)')
-    plt.title('Average Resistance by Device  non averaged')
-    #plt.yscale('log')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('saved_files/2.png')
-    plt.show()
-
-    plt.figure(figsize=(10, 6))
-    plt.errorbar(
-        resistance_df['concentration'],  # x values
-        resistance_df['average_resistance'],  # y values
-        fmt='x',
-        ecolor='red',
-        capsize=5,
-        label='Average Resistance'
-    )
-    plt.xlabel('concentration')
-    plt.ylabel('Average Resistance (Ohms)')
-    plt.title('Average Resistance by Device  non averaged')
-    #plt.yscale('log')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('saved_files/3.png')
-    plt.show()
+    return 0
 
 
-def extract_concentration(concentration):
-    match = re.search(r"[\d.]+", concentration)  # Match numbers and decimal points
-    if match:
-        return float(match.group())  # Convert to float
-    return None
 
 
-def extract_polymer_info(polymer):
-    name_match = re.match(r"[A-Za-yields]+", polymer)  # Match only letters at the start
-    percent_match = re.search(r"\((\d+)%\)", polymer)  # Match the percentage in parentheses
-    name = name_match.group() if name_match else None
-    percentage = int(percent_match.group(1)) if percent_match else None
-    return name, percentage
 
-
-def get_keys_at_depth(store, target_depth=5):
+def _discover_defaults():
+    """Try to auto-discover paths for hdf5, excel, and yield dir on this machine.
+    Returns (hdf5_path, excel_path, yield_dir) where missing ones are None.
     """
-    Recursively traverse the HDF5 file and return keys at the specified depth.
+    # Base root the user specified
+    base = Path(r"C:\Users\Craig-Desktop\OneDrive - The University of Nottingham\Documents\Phd\2) Data\1) Devices\1) Memristors")
+    hdf5_candidates = []
+    if base.exists():
+        for p in base.glob("Memristor_data_*.h5"):
+            hdf5_candidates.append(p)
+    hdf5_path = None
+    if hdf5_candidates:
+        # pick latest by stem suffix date (digits at end)
+        def _key(p: Path):
+            # Extract 8-digit date from filename if present
+            s = p.stem
+            digits = ''.join(ch for ch in s if ch.isdigit())
+            return digits
+        hdf5_path = str(sorted(hdf5_candidates, key=_key)[-1])
 
-    Parameters:
-    - store: h5py.File or h5py.Group object
-    - target_depth: int, depth at which to collect keys
+    # Guess excel and yield
+    excel_guess = Path.home() / Path("OneDrive - The University of Nottingham/Documents/Phd/solutions and devices.xlsx")
+    excel_path = str(excel_guess) if excel_guess.exists() else None
 
-    Returns:
-    - List of keys at the specified depth
-    """
+    yield_guess = Path.home() / Path("OneDrive - The University of Nottingham/\Documents/Phd/1) Projects/1) Memristors/1) Curated Data")
+    yield_dir = str(yield_guess) if yield_guess.exists() else None
 
-    def traverse(group, current_depth, prefix=""):
-        keys = []
-        for name in group:
-            path = f"{prefix}/{name}".strip("/")
-            if isinstance(group[name], h5py.Group):  # If it's a group, recurse
-                keys.extend(traverse(group[name], current_depth + 1, path))
-            elif isinstance(group[name], h5py.Dataset):  # If it's a dataset, check depth
-                if current_depth == target_depth:
-                    keys.append(path)
-        return keys
+    return hdf5_path, excel_path, yield_dir
 
-    return traverse(store, 1)  # Start at depth 1
-
-
-def get_yield_from_file(yield_path):
-    """
-    Load and return the yield dictionary from the JSON files.
-
-    Parameters:
-    - yield_path: Path object to the yield directory"""
-
-    # Load the JSON files
-    with open(yield_path / "yield_dict.json", "r") as f:
-        sorted_yield_dict = json.load(f)
-
-    with open(yield_path / "yield_dict_section.json", "r") as f:
-        sorted_yield_dict_sect = json.load(f)
-
-    #print(sorted_yield_dict)
-    #print(sorted_yield_dict["D26-Stock-ITO-F8PFB(1%)-Gold-s4"])
-    return sorted_yield_dict, sorted_yield_dict_sect
-
-
-def return_data(base_key, store):
-    """
-    Given the file key return the data in a pd dataframe converting form numpy array
-    """
-    parts = base_key.strip('/').split('/')
-    #print(parts)
-    filename = parts[-1]
-    device = parts[-2]
-    section = parts[-3]
-
-    key_file_stats = base_key + "_file_stats"
-    key_raw_data = base_key + "_raw_data"
-
-    data_file_stats = store[key_file_stats][()]
-    data_raw_data = store[key_raw_data][()]
-
-    # convert data back to pd dataframe
-
-    column_names_raw_data = ['voltage', 'current', 'abs_current', 'resistance', 'voltage_ps', 'current_ps',
-                             'voltage_ng', 'current_ng', 'log_Resistance', 'abs_Current_ps', 'abs_Current_ng',
-                             'current_Density_ps', 'current_Density_ng', 'electric_field_ps', 'electric_field_ng',
-                             'inverse_resistance_ps', 'inverse_resistance_ng', 'sqrt_Voltage_ps', 'sqrt_Voltage_ng',
-                             'classification']
-
-    column_names_file_stats = ['ps_area', 'ng_area', 'area', 'normalized_area', 'resistance_on_value',
-                               'resistance_off_value', 'ON_OFF_Ratio', 'voltage_on_value', 'voltage_off_value']
-
-    # Convert numpy arrays to pd dataframes
-    df_file_stats = pd.DataFrame(data_file_stats, columns=column_names_file_stats)
-    df_raw_data_temp = pd.DataFrame(data_raw_data, columns=column_names_raw_data)
-    df_raw_data = map_numbers_to_classification(df_raw_data_temp)
-
-    # print(df_file_stats)
-    # print(df_raw_data)
-
-    return df_raw_data, df_file_stats, parts
-
-
-def map_numbers_to_classification(df):
-    # Only apply the mapping if the 'classification' column exists in the dataframe
-    if 'classification' in df.columns:
-        reverse_classification_map = {
-            0: 'Memristive',
-            1: 'Capacitive',
-            2: 'Conductive',
-            3: 'Intermittent',
-            4: 'Mem-Capacitance',
-            5: 'Ohmic',
-            6: 'Non-Conductive'
-        }
-        df['classification'] = df['classification'].map(reverse_classification_map)
-    return df
-
-
-def filter_keys_by_suffix(keys, suffix):
-    """
-    Filter keys by a specific suffix (e.g., '_info', '_metrics').
-    """
-    return [key for key in keys if key.endswith(suffix)]
-
-
-def graphs_concentration_yield_spacing(df, identifiers):
-    """ graphs of each concentration against yield spacing and stuffs"""
-
-    # prep the save location for graphs
-    if "" in identifiers:
-        directory_name = "All"
-    else:
-        directory_name = ",".join(identifiers)
-    print(directory_name)
-
-    # Create the directory
-    Save_loc = os.path.join("Substrate_graphs", directory_name)
-    os.makedirs(Save_loc, exist_ok=True)
-
-    # Plotting graphs for at the substrate level!
-    # plot polymer % as different colours?
-    #print(df['Np Concentration'].unique())
-    #print(df['Yield'].unique())
-    # plot graphs for analysing between devices
-    graph.plot_concentration_yield(df['Np Concentration'], df['Yield'], Save_loc, directory_name)
-    graph.plot_concentration_yield_labels(df['Np Concentration'], df['Yield'], df["Device Name"], Save_loc,
-                                          directory_name)
-    graph.plot_concentration_spacing(df['Np Concentration'], df['Qd Spacing (nm)'], Save_loc, directory_name)
-    graph.Spacing_yield(df['Qd Spacing (nm)'], df['Yield'], Save_loc, directory_name)
-    graph.Spacing_yield_labels(df['Qd Spacing (nm)'], df['Yield'], df["Device Name"], Save_loc, directory_name)
-    # 3xis graph of all
-    graph.Spacing_yield_concentration_3d(df["Np Concentration"], df["Qd Spacing (nm)"], df["Yield"],
-                                         df["Device Name"], Save_loc, directory_name)
-
-
-def collect_sample_names(grouped_keys):
-    # collect all substrate names
-    # a list of all substrate names
-    list_of_substrate_names = []
-
-    current_sample = None
-    for key in grouped_keys:
-        parts = key.strip('/').split('/')
-        substrate_name = parts[1]
-        if substrate_name != current_sample:
-            current_sample = substrate_name
-            list_of_substrate_names.append(substrate_name)
-    return list_of_substrate_names
-
-
-def get_fabrication_info(list_of_substrate_names, solution_devices_excell_path):
-    device_fabrication_info = {}
-    # get all fabrication info for each substrate,
-    for name in list_of_substrate_names:
-        df = excell.save_info_from_solution_devices_excell(name, solution_devices_excell_path)
-        device_fabrication_info[name] = df  # Store in dictionary with name as key
-        # todo this needs to have a key of the device name???
-    return device_fabrication_info
-
-
-
-# Run analysis on _metrics data
-analyze_hdf5_levels(hdf5_file)
+if __name__ == "__main__":
+    raise SystemExit(main())

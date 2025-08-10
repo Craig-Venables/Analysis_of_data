@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Data outputs
+saved_files/
+Substrate_graphs/
+wrong_classifications.txt
+*.png
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
